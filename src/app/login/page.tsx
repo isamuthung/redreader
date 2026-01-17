@@ -30,7 +30,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={{ padding: 24, maxWidth: 520 }}>
+    <main style={{ padding: "clamp(12px, 4vw, 24px)", maxWidth: 520, margin: "0 auto" }}>
       <h1 style={{ marginBottom: 8 }}>Login</h1>
       <p style={{ opacity: 0.8, marginBottom: 16 }}>
         Enter your email to receive a magic link.

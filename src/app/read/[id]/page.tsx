@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { OrpWord } from "@/components/reader/OrpWord";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 
 type Doc = {
   id: string;
@@ -79,12 +80,45 @@ export default function ReadPage() {
     return { word, orpIndex };
   }, [doc, idx]);
 
+  function stripTrailingClosers(token: string) {
+    // Helps punctuation detection when sentences end with quotes/parens/footnote markers:
+    // e.g. dependent.”  skip."  conditions?)  footnote¹
+    return token.replace(/[)"'’”\]\}›»¹²³⁴⁵⁶⁷⁸⁹⁰]+$/gu, "");
+  }
+
   function pauseMsForToken(t: string) {
     const base = 60000 / wpm;
-    if (/[.!?]$/.test(t)) return base + 220;
-    if (/[,;:]$/.test(t)) return base + 120;
-    if (t.length >= 12) return base + 60;
-    return base;
+    const core = stripTrailingClosers(t);
+
+    // Phrase/sentence punctuation (robust to closing quotes/parens).
+    if (/[.!?]$/.test(core)) return base + 220;
+    if (/[,;:]$/.test(core)) return base + 120;
+
+    // Micro-pauses for "asides" and list-like constructs
+    if (/—$/.test(t)) return base + 110; // em dash attached to token
+    if (t === "—") return base + 140;
+    if (t === "…" || /\.\.\.$/.test(t)) return base + 160;
+
+    // Heuristic "linger" for cognitively dense tokens, even at high WPM.
+    // (No schema changes required; this is computed at read-time.)
+    let extra = 0;
+
+    // Comparisons / equals (common in p-values, formulas)
+    if (/[<>=]/.test(t)) extra += 70;
+
+    // Numeric-heavy tokens: 12.7%, 1,048), 0.05
+    if (/\p{N}/u.test(t) && /[.,%]/.test(t)) extra += 60;
+
+    // Scientific glyphs / symbols mixed with letters (CO₂, σ², μ)
+    if (/\p{L}/u.test(t) && /\p{N}/u.test(t)) extra += 40;
+
+    // Parenthetical-heavy or citation-like patterns
+    if (/^[([{]/.test(t) || /[)\]]$/.test(t)) extra += 40;
+
+    // Long tokens still get a small bump
+    if (t.length >= 12) extra += 60;
+
+    return base + extra;
   }
 
   useEffect(() => {
@@ -169,10 +203,10 @@ export default function ReadPage() {
 
   if (error) {
     return (
-      <main style={{ padding: 24 }}>
-        <a href="/" style={{ color: "#fff" }}>
+      <main style={{ padding: "clamp(12px, 4vw, 24px)", maxWidth: 900, margin: "0 auto" }}>
+        <Link href="/" style={{ color: "#fff" }}>
           ← Back
-        </a>
+        </Link>
         <p style={{ color: "#ff6b6b", marginTop: 12 }}>Error: {error}</p>
       </main>
     );
@@ -180,25 +214,22 @@ export default function ReadPage() {
 
   if (!doc) {
     return (
-      <main style={{ padding: 24 }}>
-        <a href="/" style={{ color: "#fff" }}>
+      <main style={{ padding: "clamp(12px, 4vw, 24px)", maxWidth: 900, margin: "0 auto" }}>
+        <Link href="/" style={{ color: "#fff" }}>
           ← Back
-        </a>
+        </Link>
         <p style={{ opacity: 0.8, marginTop: 12 }}>Loading…</p>
       </main>
     );
   }
 
   return (
-    <main style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
+    <main style={{ padding: "clamp(12px, 4vw, 24px)", maxWidth: 900, margin: "0 auto" }}>
       <header style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
         <div>
-          <a
-            href="/"
-            style={{ color: "#fff", textDecoration: "none", opacity: 0.8 }}
-          >
+          <Link href="/" style={{ color: "#fff", textDecoration: "none", opacity: 0.8 }}>
             ← Library
-          </a>
+          </Link>
           <h1 style={{ margin: "8px 0 0 0" }}>{doc.title}</h1>
           <div style={{ opacity: 0.7, fontSize: 13 }}>
             Word {idx + 1} / {doc.tokens.length}
@@ -212,23 +243,26 @@ export default function ReadPage() {
           marginTop: 24,
           border: "1px solid #222",
           borderRadius: 18,
-          padding: 18,
-          minHeight: 220,
+          padding: "clamp(12px, 4vw, 18px)",
+          minHeight: "clamp(180px, 32vw, 240px)",
           display: "grid",
           placeItems: "center",
           background: "#000",
+          width: "100%",
+          overflow: "hidden",
         }}
       >
         <div
           style={{
-            fontSize: 64,
+            fontSize: "clamp(34px, 10vw, 64px)",
             fontWeight: 650,
             letterSpacing: 0.5,
             lineHeight: 1,
             textAlign: "center",
             userSelect: "none",
-            whiteSpace: "nowrap",
             fontFamily: '"Times New Roman", Times, serif',
+            maxWidth: "100%",
+            overflow: "hidden",
           }}
         >
           <OrpWord word={cur.word} orpIndex={cur.orpIndex} />
@@ -309,8 +343,11 @@ export default function ReadPage() {
 
         {/* WPM slider */}
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <label style={{ opacity: 0.8 }}>WPM</label>
+          <label htmlFor="wpm" style={{ opacity: 0.8 }}>
+            WPM
+          </label>
           <input
+            id="wpm"
             type="range"
             min={200}
             max={1200}

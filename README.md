@@ -36,3 +36,9 @@ This is a **simplified** repo skeleton for a Next.js PWA RSVP reader with Supaba
 Copy `.env.local.example` -> `.env.local` and fill in:
 - NEXT_PUBLIC_SUPABASE_URL=
 - NEXT_PUBLIC_SUPABASE_ANON_KEY=
+
+## Supabase schema (folders + documents)
+Run `supabase/schema.sql` in the Supabase SQL editor. It creates:
+- `folders` (per-user)
+- `documents` with `folder_id` (nullable, `on delete set null`)
+- `reading_state` (cascades when a document is deleted)
