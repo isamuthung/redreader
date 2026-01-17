@@ -1,65 +1,238 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabase/client";
+import { tokenizeText } from "@/lib/text/tokenize";
+import { orpIndexForWord } from "@/lib/text/orp";
+
+type DocRow = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at?: string;
+};
+
+export default function HomePage() {
+  const [email, setEmail] = useState<string | null>(null);
+
+  // paste/save
+  const [title, setTitle] = useState("Untitled");
+  const [text, setText] = useState("");
+  const [saveStatus, setSaveStatus] = useState("");
+
+  // library
+  const [docs, setDocs] = useState<DocRow[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+    });
+
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  async function loadDocs() {
+    setLoadingDocs(true);
+    setSaveStatus("");
+
+    const { data, error } = await supabase
+      .from("documents")
+      .select("id,title,created_at,updated_at")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    setLoadingDocs(false);
+
+    if (error) {
+      setSaveStatus("Error loading docs: " + error.message);
+      return;
+    }
+    setDocs((data ?? []) as DocRow[]);
+  }
+
+  useEffect(() => {
+    if (email) loadDocs();
+  }, [email]);
+
+  const tokenPreview = useMemo(() => {
+    const tokens = tokenizeText(text);
+    return tokens.slice(0, 12);
+  }, [text]);
+
+  async function saveDocument() {
+    setSaveStatus("");
+
+    const tokens = tokenizeText(text);
+    if (tokens.length === 0) {
+      setSaveStatus("Paste some text first.");
+      return;
+    }
+
+    // ORP index per token (simple version: for each token string)
+    const orpIndexes = tokens.map((t) => orpIndexForWord(t));
+
+    setSaveStatus("Saving…");
+
+    const { error } = await supabase.from("documents").insert({
+      title: title.trim() || "Untitled",
+      raw_text: text,
+      tokens,
+      orp_indexes: orpIndexes,
+    });
+
+    if (error) {
+      setSaveStatus("Error saving: " + error.message);
+      return;
+    }
+
+    setSaveStatus("Saved ✅");
+    setText("");
+    await loadDocs();
+  }
+
+  if (!email) {
+    return (
+      <main style={{ padding: 24 }}>
+        <h1>RedReader</h1>
+        <p style={{ opacity: 0.8 }}>
+          Not signed in. Go to <a href="/login">/login</a>.
+        </p>
       </main>
-    </div>
+    );
+  }
+
+  return (
+    <main style={{ padding: 24, maxWidth: 900 }}>
+      <header style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+        <div>
+          <h1 style={{ marginBottom: 4 }}>RedReader</h1>
+          <p style={{ opacity: 0.8 }}>Signed in as: {email}</p>
+        </div>
+        <button
+          onClick={() => supabase.auth.signOut()}
+          style={{
+            height: 40,
+            padding: "0 14px",
+            borderRadius: 10,
+            border: "1px solid #333",
+            background: "#000",
+            color: "#fff",
+            cursor: "pointer",
+          }}
+        >
+          Sign out
+        </button>
+      </header>
+
+      <section style={{ marginTop: 24, padding: 16, border: "1px solid #222", borderRadius: 14 }}>
+        <h2 style={{ marginTop: 0 }}>New document</h2>
+
+        <div style={{ display: "grid", gap: 10 }}>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Title"
+            style={{
+              padding: 10,
+              borderRadius: 10,
+              border: "1px solid #333",
+              background: "#000",
+              color: "#fff",
+            }}
+          />
+
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Paste text here…"
+            rows={8}
+            style={{
+              padding: 10,
+              borderRadius: 10,
+              border: "1px solid #333",
+              background: "#000",
+              color: "#fff",
+              resize: "vertical",
+            }}
+          />
+
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              onClick={saveDocument}
+              style={{
+                height: 40,
+                padding: "0 14px",
+                borderRadius: 10,
+                border: "1px solid #333",
+                background: "#fff",
+                color: "#000",
+                cursor: "pointer",
+                fontWeight: 700,
+              }}
+            >
+              Save
+            </button>
+            {saveStatus && <span style={{ opacity: 0.9 }}>{saveStatus}</span>}
+          </div>
+
+          {tokenPreview.length > 0 && (
+            <div style={{ opacity: 0.75, fontSize: 14 }}>
+              Preview tokens: <code>{JSON.stringify(tokenPreview)}</code>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section style={{ marginTop: 20 }}>
+        <h2>Your documents</h2>
+
+        <button
+          onClick={loadDocs}
+          style={{
+            height: 36,
+            padding: "0 12px",
+            borderRadius: 10,
+            border: "1px solid #333",
+            background: "#111",
+            color: "#fff",
+            cursor: "pointer",
+            marginBottom: 12,
+          }}
+        >
+          Refresh
+        </button>
+
+        {loadingDocs ? (
+          <p style={{ opacity: 0.8 }}>Loading…</p>
+        ) : docs.length === 0 ? (
+          <p style={{ opacity: 0.8 }}>No documents yet.</p>
+        ) : (
+          <div style={{ display: "grid", gap: 10 }}>
+            {docs.map((d) => (
+              <a
+                key={d.id}
+                href={`/read/${d.id}`}
+                style={{
+                  display: "block",
+                  padding: 12,
+                  borderRadius: 12,
+                  border: "1px solid #222",
+                  textDecoration: "none",
+                  color: "#fff",
+                }}
+              >
+                <div style={{ fontWeight: 700 }}>{d.title}</div>
+                <div style={{ opacity: 0.7, fontSize: 13 }}>
+                  Created: {new Date(d.created_at).toLocaleString()}
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
+      </section>
+    </main>
   );
 }
