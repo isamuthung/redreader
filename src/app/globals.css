@@ -1,0 +1,10 @@
+/* Tailwind will go here later (globals.css placeholder) */
+:root {
+  color-scheme: dark;
+}
+body {
+  margin: 0;
+  background: #000;
+  color: #fff;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}

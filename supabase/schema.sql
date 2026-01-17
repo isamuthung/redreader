@@ -1,0 +1,5 @@
+-- Supabase schema placeholder.
+-- We'll add:
+-- 1) documents table
+-- 2) reading_state table
+-- 3) RLS policies
