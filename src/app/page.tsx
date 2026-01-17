@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { tokenizeText } from "@/lib/text/tokenize";
 import { orpIndexForWord } from "@/lib/text/orp";
@@ -34,11 +34,30 @@ export default function HomePage() {
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [folders, setFolders] = useState<FolderRow[]>([]);
   const [loadingFolders, setLoadingFolders] = useState(false);
+  const [foldersEnabled, setFoldersEnabled] = useState(true);
+  const [schemaWarning, setSchemaWarning] = useState<string>("");
 
   // folder filter: "__all__" | "__unfiled__" | folder uuid
   const [activeFolderId, setActiveFolderId] = useState<string>("__all__");
 
-  async function loadFolders() {
+  const looksLikeMissingFolderSchema = (msg: string) =>
+    /column\s+documents\.folder_id\s+does not exist/i.test(msg) ||
+    /column\s+folder_id\s+does not exist/i.test(msg) ||
+    /relation\s+"?folders"?\s+does not exist/i.test(msg);
+
+  const disableFolders = useCallback((msg: string) => {
+    setFoldersEnabled(false);
+    setSchemaWarning(
+      "Folders aren't enabled in your Supabase database yet. Run `supabase/schema.sql` (it includes an ALTER TABLE for existing installs). " +
+        msg
+    );
+    setFolders([]);
+    setActiveFolderId("__all__");
+    setNewDocFolderId("__unfiled__");
+  }, []);
+
+  const loadFolders = useCallback(async () => {
+    if (!foldersEnabled) return;
     setLoadingFolders(true);
     const { data, error } = await supabase
       .from("folders")
@@ -47,34 +66,68 @@ export default function HomePage() {
 
     setLoadingFolders(false);
     if (error) {
+      if (looksLikeMissingFolderSchema(error.message)) {
+        disableFolders("(Missing `folders` table.)");
+        return;
+      }
       setSaveStatus("Error loading folders: " + error.message);
       return;
     }
     setFolders((data ?? []) as FolderRow[]);
-  }
+  }, [disableFolders, foldersEnabled]);
 
-  async function loadDocs() {
+  const loadDocs = useCallback(
+    async (folderFilter: string) => {
     setLoadingDocs(true);
     setSaveStatus("");
 
-    let q = supabase
-      .from("documents")
+    const base = supabase.from("documents");
+
+    // If folder support isn't present in DB yet, don't request `folder_id` or filter by it.
+    if (!foldersEnabled) {
+      const { data, error } = await base
+        .select("id,title,created_at,updated_at")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      setLoadingDocs(false);
+      if (error) {
+        setSaveStatus("Error loading docs: " + error.message);
+        return;
+      }
+      setDocs((data ?? []) as DocRow[]);
+      return;
+    }
+
+    let q2 = base
       .select("id,title,created_at,updated_at,folder_id")
       .order("created_at", { ascending: false });
+    if (folderFilter === "__unfiled__") q2 = q2.is("folder_id", null);
+    else if (folderFilter !== "__all__") q2 = q2.eq("folder_id", folderFilter);
 
-    if (activeFolderId === "__unfiled__") q = q.is("folder_id", null);
-    else if (activeFolderId !== "__all__") q = q.eq("folder_id", activeFolderId);
-
-    const { data, error } = await q.limit(50);
+    const { data, error } = await q2.limit(50);
 
     setLoadingDocs(false);
 
     if (error) {
+      if (looksLikeMissingFolderSchema(error.message)) {
+        disableFolders("(Missing `documents.folder_id` column.)");
+        // Retry without folders
+        const retry = await supabase
+          .from("documents")
+          .select("id,title,created_at,updated_at")
+          .order("created_at", { ascending: false })
+          .limit(50);
+        if (retry.error) setSaveStatus("Error loading docs: " + retry.error.message);
+        else setDocs((retry.data ?? []) as DocRow[]);
+        return;
+      }
       setSaveStatus("Error loading docs: " + error.message);
       return;
     }
     setDocs((data ?? []) as DocRow[]);
-  }
+    },
+    [disableFolders, foldersEnabled]
+  );
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -82,7 +135,7 @@ export default function HomePage() {
       setEmail(nextEmail);
       if (nextEmail) {
         loadFolders();
-        loadDocs();
+        loadDocs(activeFolderId);
       } else {
         setFolders([]);
         setDocs([]);
@@ -95,7 +148,7 @@ export default function HomePage() {
         setEmail(nextEmail);
         if (nextEmail) {
           loadFolders();
-          loadDocs();
+          loadDocs(activeFolderId);
         } else {
           setFolders([]);
           setDocs([]);
@@ -104,14 +157,8 @@ export default function HomePage() {
     });
 
     return () => sub.subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!email) return;
-    // Avoid a dependency tangle: loadDocs is stable enough for our use and depends on activeFolderId.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    loadDocs();
-  }, [email, activeFolderId]);
+  }, [loadDocs, loadFolders]);
 
   const tokenPreview = useMemo(() => {
     const tokens = tokenizeText(text);
@@ -119,6 +166,7 @@ export default function HomePage() {
   }, [text]);
 
   async function createFolder() {
+    if (!foldersEnabled) return;
     const name = window.prompt("Folder name?");
     if (!name) return;
     const trimmed = name.trim();
@@ -133,6 +181,7 @@ export default function HomePage() {
   }
 
   async function renameFolder(folderId: string, currentName: string) {
+    if (!foldersEnabled) return;
     const name = window.prompt("Rename folder:", currentName);
     if (name == null) return;
     const trimmed = name.trim();
@@ -147,6 +196,7 @@ export default function HomePage() {
   }
 
   async function deleteFolder(folderId: string, name: string) {
+    if (!foldersEnabled) return;
     const ok = window.confirm(
       `Delete folder "${name}"?\n\nDocuments in this folder will become Unfiled.`
     );
@@ -158,10 +208,11 @@ export default function HomePage() {
       return;
     }
 
+    const nextActive = activeFolderId === folderId ? "__all__" : activeFolderId;
     if (activeFolderId === folderId) setActiveFolderId("__all__");
     if (newDocFolderId === folderId) setNewDocFolderId("__unfiled__");
     await loadFolders();
-    await loadDocs();
+    await loadDocs(nextActive);
   }
 
   async function renameDoc(docId: string, currentTitle: string) {
@@ -175,7 +226,7 @@ export default function HomePage() {
       setSaveStatus("Error renaming document: " + error.message);
       return;
     }
-    await loadDocs();
+    await loadDocs(activeFolderId);
   }
 
   async function deleteDoc(docId: string, title: string) {
@@ -187,10 +238,11 @@ export default function HomePage() {
       setSaveStatus("Error deleting document: " + error.message);
       return;
     }
-    await loadDocs();
+    await loadDocs(activeFolderId);
   }
 
   async function moveDoc(docId: string, folderId: string) {
+    if (!foldersEnabled) return;
     const nextFolderId = folderId === "__unfiled__" ? null : folderId;
     const { error } = await supabase
       .from("documents")
@@ -200,7 +252,7 @@ export default function HomePage() {
       setSaveStatus("Error moving document: " + error.message);
       return;
     }
-    await loadDocs();
+    await loadDocs(activeFolderId);
   }
 
   async function saveDocument() {
@@ -217,22 +269,41 @@ export default function HomePage() {
 
     setSaveStatus("Saving…");
 
-    const { error } = await supabase.from("documents").insert({
+    const baseInsert: Record<string, unknown> = {
       title: title.trim() || "Untitled",
       raw_text: text,
       tokens,
       orp_indexes: orpIndexes,
-      folder_id: newDocFolderId === "__unfiled__" ? null : newDocFolderId,
-    });
+    };
+
+    if (foldersEnabled) {
+      baseInsert.folder_id = newDocFolderId === "__unfiled__" ? null : newDocFolderId;
+    }
+
+    const { error } = await supabase.from("documents").insert(baseInsert);
 
     if (error) {
+      if (foldersEnabled && looksLikeMissingFolderSchema(error.message)) {
+        disableFolders("(Can't write `documents.folder_id`.)");
+        const retry = await supabase.from("documents").insert({
+          title: title.trim() || "Untitled",
+          raw_text: text,
+          tokens,
+          orp_indexes: orpIndexes,
+        });
+        if (retry.error) setSaveStatus("Error saving: " + retry.error.message);
+        else setSaveStatus("Saved ✅");
+        setText("");
+        await loadDocs(activeFolderId);
+        return;
+      }
       setSaveStatus("Error saving: " + error.message);
       return;
     }
 
     setSaveStatus("Saved ✅");
     setText("");
-    await loadDocs();
+    await loadDocs(activeFolderId);
   }
 
   if (!email) {
@@ -271,18 +342,24 @@ export default function HomePage() {
 
       {/* Folders */}
       <section style={{ marginTop: 18, padding: 16, border: "1px solid #222", borderRadius: 14 }}>
+        {!foldersEnabled && (
+          <div style={{ marginBottom: 10, color: "#ffcc66", fontSize: 13, whiteSpace: "pre-wrap" }}>
+            {schemaWarning}
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <h2 style={{ margin: 0 }}>Folders</h2>
           <button
             onClick={createFolder}
+            disabled={!foldersEnabled}
             style={{
               height: 36,
               padding: "0 12px",
               borderRadius: 10,
               border: "1px solid #333",
-              background: "#fff",
-              color: "#000",
-              cursor: "pointer",
+              background: foldersEnabled ? "#fff" : "#111",
+              color: foldersEnabled ? "#000" : "#777",
+              cursor: foldersEnabled ? "pointer" : "not-allowed",
               fontWeight: 800,
             }}
           >
@@ -292,7 +369,11 @@ export default function HomePage() {
 
         <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button
-            onClick={() => setActiveFolderId("__all__")}
+            onClick={() => {
+              const next = "__all__";
+              setActiveFolderId(next);
+              loadDocs(next);
+            }}
             style={{
               height: 34,
               padding: "0 10px",
@@ -307,7 +388,12 @@ export default function HomePage() {
             All
           </button>
           <button
-            onClick={() => setActiveFolderId("__unfiled__")}
+            onClick={() => {
+              const next = "__unfiled__";
+              setActiveFolderId(next);
+              loadDocs(next);
+            }}
+            disabled={!foldersEnabled}
             style={{
               height: 34,
               padding: "0 10px",
@@ -315,8 +401,9 @@ export default function HomePage() {
               border: "1px solid #333",
               background: activeFolderId === "__unfiled__" ? "#fff" : "#111",
               color: activeFolderId === "__unfiled__" ? "#000" : "#fff",
-              cursor: "pointer",
+              cursor: foldersEnabled ? "pointer" : "not-allowed",
               fontWeight: 700,
+              opacity: foldersEnabled ? 1 : 0.5,
             }}
           >
             Unfiled
@@ -338,7 +425,11 @@ export default function HomePage() {
                 }}
               >
                 <button
-                  onClick={() => setActiveFolderId(f.id)}
+                  onClick={() => {
+                    const next = f.id;
+                    setActiveFolderId(next);
+                    loadDocs(next);
+                  }}
                   style={{
                     height: 30,
                     padding: "0 10px",
@@ -480,7 +571,7 @@ export default function HomePage() {
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <button
-            onClick={loadDocs}
+            onClick={() => loadDocs(activeFolderId)}
             style={{
               height: 36,
               padding: "0 12px",
@@ -588,6 +679,7 @@ export default function HomePage() {
                     id={`folder-${d.id}`}
                     value={d.folder_id ?? "__unfiled__"}
                     onChange={(e) => moveDoc(d.id, e.target.value)}
+                    disabled={!foldersEnabled}
                     style={{
                       height: 36,
                       padding: "0 10px",
@@ -595,6 +687,7 @@ export default function HomePage() {
                       border: "1px solid #333",
                       background: "#000",
                       color: "#fff",
+                      opacity: foldersEnabled ? 1 : 0.5,
                     }}
                   >
                     <option value="__unfiled__">Unfiled</option>
