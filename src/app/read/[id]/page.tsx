@@ -22,7 +22,7 @@ export default function ReadPage() {
 
   // player state
   const [playing, setPlaying] = useState(false);
-  const [wpm, setWpm] = useState(600);
+  const [wpm, setWpm] = useState(700);
   const [idx, setIdx] = useState(0);
 
   const rafRef = useRef<number | null>(null);
@@ -65,10 +65,10 @@ export default function ReadPage() {
 
       if (rs.data) {
         setIdx(Math.max(0, Math.min(tokens.length - 1, rs.data.idx ?? 0)));
-        setWpm(rs.data.wpm ?? 600);
+        setWpm(rs.data.wpm ?? 700);
       } else {
         setIdx(0);
-        setWpm(600);
+        setWpm(700);
       }
     }
 
@@ -281,69 +281,6 @@ export default function ReadPage() {
         </div>
       </section>
 
-      {/* Scrollable full text (click-to-jump) */}
-      <section
-        style={{
-          marginTop: 12,
-          border: "1px solid #222",
-          borderRadius: 16,
-          padding: 12,
-          background: "#070707",
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <div style={{ fontWeight: 800 }}>Text</div>
-          <div style={{ opacity: 0.7, fontSize: 13 }}>
-            Tap a word to jump • Current: {idx + 1}/{doc.tokens.length}
-          </div>
-        </div>
-
-        <div
-          ref={textPaneRef}
-          onClick={(e) => {
-            const t = e.target as HTMLElement | null;
-            const el = t?.closest?.("[data-idx]") as HTMLElement | null;
-            if (!el) return;
-            const raw = el.getAttribute("data-idx");
-            if (!raw) return;
-            const next = parseInt(raw, 10);
-            if (Number.isFinite(next)) setIdx(Math.max(0, Math.min(doc.tokens.length - 1, next)));
-          }}
-          style={{
-            marginTop: 10,
-            maxHeight: "min(42vh, 360px)",
-            overflowY: "auto",
-            padding: 12,
-            borderRadius: 12,
-            border: "1px solid #1d1d1d",
-            background: "#000",
-            lineHeight: 1.65,
-            fontSize: 16,
-            wordBreak: "break-word",
-          }}
-        >
-          {doc.tokens.map((t, i) => {
-            const active = i === idx;
-            return (
-              <span
-                key={i}
-                data-idx={i}
-                style={{
-                  cursor: "pointer",
-                  background: active ? "rgba(255,255,255,0.16)" : "transparent",
-                  borderRadius: 6,
-                  padding: "1px 3px",
-                  outline: active ? "1px solid rgba(255,255,255,0.18)" : "none",
-                }}
-              >
-                {t}
-                {" "}
-              </span>
-            );
-          })}
-        </div>
-      </section>
-
       {/* Controls */}
       <section style={{ marginTop: 16, display: "grid", gap: 12 }}>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -394,31 +331,30 @@ export default function ReadPage() {
           </button>
         </div>
 
-        {/* WPM presets */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          {[300, 500, 700].map((v) => (
-            <button
-              key={v}
-              onClick={() => setWpm(v)}
-              style={{
-                height: 34,
-                padding: "0 10px",
-                borderRadius: 10,
-                border: "1px solid #333",
-                background: wpm === v ? "#fff" : "#111",
-                color: wpm === v ? "#000" : "#fff",
-                cursor: "pointer",
-                fontWeight: 700,
-              }}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
+        {/* WPM controls (presets + stepped slider on one row) */}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {[500, 700, 900].map((v) => (
+              <button
+                key={v}
+                onClick={() => setWpm(v)}
+                style={{
+                  height: 34,
+                  padding: "0 10px",
+                  borderRadius: 10,
+                  border: "1px solid #333",
+                  background: wpm === v ? "#fff" : "#111",
+                  color: wpm === v ? "#000" : "#fff",
+                  cursor: "pointer",
+                  fontWeight: 800,
+                }}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
 
-        {/* WPM slider */}
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <label htmlFor="wpm" style={{ opacity: 0.8 }}>
+          <label htmlFor="wpm" style={{ opacity: 0.8, marginLeft: 4 }}>
             WPM
           </label>
           <input
@@ -426,12 +362,78 @@ export default function ReadPage() {
             type="range"
             min={200}
             max={1200}
-            step={10}
+            step={20}
             value={wpm}
             onChange={(e) => setWpm(parseInt(e.target.value, 10))}
             style={{ width: 260 }}
           />
           <div style={{ width: 70, textAlign: "right" }}>{wpm}</div>
+        </div>
+      </section>
+
+      {/* Scrollable full text (click-to-jump) */}
+      <section
+        style={{
+          marginTop: 12,
+          border: "1px solid #222",
+          borderRadius: 16,
+          padding: 12,
+          background: "#070707",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 800 }}>Text</div>
+          <div style={{ opacity: 0.7, fontSize: 13 }}>
+            Tap a word to jump • Current: {idx + 1}/{doc.tokens.length}
+          </div>
+        </div>
+
+        <div
+          ref={textPaneRef}
+          className="rr-hide-scrollbar"
+          onClick={(e) => {
+            const t = e.target as HTMLElement | null;
+            const el = t?.closest?.("[data-idx]") as HTMLElement | null;
+            if (!el) return;
+            const raw = el.getAttribute("data-idx");
+            if (!raw) return;
+            const next = parseInt(raw, 10);
+            if (Number.isFinite(next)) setIdx(Math.max(0, Math.min(doc.tokens.length - 1, next)));
+          }}
+          style={{
+            marginTop: 10,
+            maxHeight: "min(42vh, 360px)",
+            overflowY: "auto",
+            overflowX: "hidden",
+            WebkitOverflowScrolling: "touch",
+            padding: 12,
+            borderRadius: 12,
+            border: "1px solid #1d1d1d",
+            background: "#000",
+            lineHeight: 1.65,
+            fontSize: 16,
+            wordBreak: "break-word",
+          }}
+        >
+          {doc.tokens.map((t, i) => {
+            const active = i === idx;
+            return (
+              <span
+                key={i}
+                data-idx={i}
+                style={{
+                  cursor: "pointer",
+                  background: active ? "rgba(255,255,255,0.16)" : "transparent",
+                  borderRadius: 6,
+                  padding: "1px 3px",
+                  outline: active ? "1px solid rgba(255,255,255,0.18)" : "none",
+                }}
+              >
+                {t}
+                {" "}
+              </span>
+            );
+          })}
         </div>
       </section>
     </main>
