@@ -33,6 +33,8 @@ export default function ReadPage() {
   const saveTimerRef = useRef<number | null>(null);
   const lastSavedRef = useRef<{ idx: number; wpm: number } | null>(null);
 
+  const textPaneRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     async function load() {
       setError("");
@@ -120,6 +122,16 @@ export default function ReadPage() {
 
     return base + extra;
   }
+
+  // Keep the active token visible in the scrollable text pane.
+  useEffect(() => {
+    if (!doc) return;
+    const pane = textPaneRef.current;
+    if (!pane) return;
+    const el = pane.querySelector<HTMLElement>(`[data-idx="${idx}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [doc, idx]);
 
   useEffect(() => {
     if (!playing || !doc) return;
@@ -266,6 +278,69 @@ export default function ReadPage() {
           }}
         >
           <OrpWord word={cur.word} orpIndex={cur.orpIndex} />
+        </div>
+      </section>
+
+      {/* Scrollable full text (click-to-jump) */}
+      <section
+        style={{
+          marginTop: 12,
+          border: "1px solid #222",
+          borderRadius: 16,
+          padding: 12,
+          background: "#070707",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 800 }}>Text</div>
+          <div style={{ opacity: 0.7, fontSize: 13 }}>
+            Tap a word to jump • Current: {idx + 1}/{doc.tokens.length}
+          </div>
+        </div>
+
+        <div
+          ref={textPaneRef}
+          onClick={(e) => {
+            const t = e.target as HTMLElement | null;
+            const el = t?.closest?.("[data-idx]") as HTMLElement | null;
+            if (!el) return;
+            const raw = el.getAttribute("data-idx");
+            if (!raw) return;
+            const next = parseInt(raw, 10);
+            if (Number.isFinite(next)) setIdx(Math.max(0, Math.min(doc.tokens.length - 1, next)));
+          }}
+          style={{
+            marginTop: 10,
+            maxHeight: "min(42vh, 360px)",
+            overflowY: "auto",
+            padding: 12,
+            borderRadius: 12,
+            border: "1px solid #1d1d1d",
+            background: "#000",
+            lineHeight: 1.65,
+            fontSize: 16,
+            wordBreak: "break-word",
+          }}
+        >
+          {doc.tokens.map((t, i) => {
+            const active = i === idx;
+            return (
+              <span
+                key={i}
+                data-idx={i}
+                style={{
+                  cursor: "pointer",
+                  background: active ? "rgba(255,255,255,0.16)" : "transparent",
+                  borderRadius: 6,
+                  padding: "1px 3px",
+                  outline: active ? "1px solid rgba(255,255,255,0.18)" : "none",
+                }}
+              >
+                {t}
+                {" "}
+              </span>
+            );
+          })}
         </div>
       </section>
 
