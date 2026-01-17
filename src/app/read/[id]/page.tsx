@@ -130,7 +130,21 @@ export default function ReadPage() {
     if (!pane) return;
     const el = pane.querySelector<HTMLElement>(`[data-idx="${idx}"]`);
     if (!el) return;
-    el.scrollIntoView({ block: "nearest", inline: "nearest" });
+
+    // IMPORTANT: do not scroll the whole page. Only adjust the pane's own scrollTop.
+    const paneRect = pane.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+
+    // Keep a little breathing room so the highlight isn't glued to the edge.
+    const pad = 24;
+    const topLimit = paneRect.top + pad;
+    const bottomLimit = paneRect.bottom - pad;
+
+    if (elRect.top < topLimit) {
+      pane.scrollTop -= topLimit - elRect.top;
+    } else if (elRect.bottom > bottomLimit) {
+      pane.scrollTop += elRect.bottom - bottomLimit;
+    }
   }, [doc, idx]);
 
   useEffect(() => {
