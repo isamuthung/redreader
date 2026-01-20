@@ -8,7 +8,15 @@
  * - We avoid fixed-width boxes so the word stays inside the container on mobile.
  * - Left/right sides can truncate with ellipsis for extremely long tokens.
  */
-export function OrpWord({ word, orpIndex }: { word: string; orpIndex: number }) {
+export function OrpWord({
+  word,
+  orpIndex,
+  accentColor = "#7a1f2b",
+}: {
+  word: string;
+  orpIndex: number;
+  accentColor?: string;
+}) {
   const left = word.slice(0, orpIndex);
   const mid = word[orpIndex] ?? "";
   const right = word.slice(orpIndex + 1);
@@ -36,7 +44,7 @@ export function OrpWord({ word, orpIndex }: { word: string; orpIndex: number }) 
         {left}
       </span>
 
-      <span style={{ color: "#7a1f2b", padding: "0 0.05em", justifySelf: "center" }}>
+      <span style={{ color: accentColor, padding: "0 0.05em", justifySelf: "center" }}>
         {mid}
       </span>
 

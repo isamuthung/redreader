@@ -24,6 +24,7 @@ export default function ReadPage() {
   const [playing, setPlaying] = useState(false);
   const [wpm, setWpm] = useState(700);
   const [idx, setIdx] = useState(0);
+  const [accentColor, setAccentColor] = useState<string>("rgb(190, 38, 60)");
 
   const rafRef = useRef<number | null>(null);
   const lastRef = useRef<number | null>(null);
@@ -59,13 +60,20 @@ export default function ReadPage() {
       // Load reading state (idx + wpm) if it exists
       const rs = await supabase
         .from("reading_state")
-        .select("idx,wpm")
+        .select("idx,wpm,theme")
         .eq("document_id", docId)
         .maybeSingle();
 
       if (rs.data) {
         setIdx(Math.max(0, Math.min(tokens.length - 1, rs.data.idx ?? 0)));
         setWpm(rs.data.wpm ?? 700);
+        const themeUnknown = (rs.data as { theme?: unknown } | null)?.theme;
+        if (themeUnknown && typeof themeUnknown === "object") {
+          const theme = themeUnknown as { accentColor?: unknown };
+          if (typeof theme.accentColor === "string" && theme.accentColor.trim()) {
+            setAccentColor(theme.accentColor);
+          }
+        }
       } else {
         setIdx(0);
         setWpm(700);
@@ -199,7 +207,7 @@ export default function ReadPage() {
         document_id: doc.id,
         idx,
         wpm,
-        theme: {}, // placeholder for later
+        theme: { accentColor },
       });
 
       if (!error) lastSavedRef.current = { idx, wpm };
@@ -208,7 +216,7 @@ export default function ReadPage() {
     return () => {
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     };
-  }, [doc, idx, wpm]);
+  }, [doc, idx, wpm, accentColor]);
 
   // Best-effort save on tab close / refresh
   useEffect(() => {
@@ -219,13 +227,13 @@ export default function ReadPage() {
         document_id: doc.id,
         idx,
         wpm,
-        theme: {},
+        theme: { accentColor },
       });
     };
 
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [doc, idx, wpm]);
+  }, [doc, idx, wpm, accentColor]);
 
   if (error) {
     return (
@@ -291,7 +299,7 @@ export default function ReadPage() {
             overflow: "hidden",
           }}
         >
-          <OrpWord word={cur.word} orpIndex={cur.orpIndex} />
+          <OrpWord word={cur.word} orpIndex={cur.orpIndex} accentColor={accentColor} />
         </div>
       </section>
 
@@ -382,6 +390,48 @@ export default function ReadPage() {
             style={{ width: 260 }}
           />
           <div style={{ width: 70, textAlign: "right" }}>{wpm}</div>
+        </div>
+
+        {/* ORP accent color */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ opacity: 0.8, fontSize: 13, marginRight: 4 }}>Accent</div>
+          {[
+            { name: "Red", color: "rgb(190, 38, 60)" },
+            { name: "Cyan", color: "rgb(56, 189, 248)" },
+            { name: "Green", color: "rgb(34, 197, 94)" },
+            { name: "Gold", color: "rgb(250, 204, 21)" },
+          ].map((c) => (
+            <button
+              key={c.name}
+              onClick={() => setAccentColor(c.color)}
+              title={c.color}
+              style={{
+                height: 30,
+                padding: "0 10px",
+                borderRadius: 10,
+                border: "1px solid #333",
+                background: accentColor === c.color ? "#fff" : "#111",
+                color: accentColor === c.color ? "#000" : "#fff",
+                cursor: "pointer",
+                fontWeight: 800,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 99,
+                  background: c.color,
+                  display: "inline-block",
+                  border: "1px solid rgba(255,255,255,0.25)",
+                }}
+              />
+              {c.name}
+            </button>
+          ))}
         </div>
       </section>
 
